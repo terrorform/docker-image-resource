@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pivotal-golang/lager"
+	"github.com/cenkalti/backoff"
+
+	"code.cloudfoundry.org/lager"
 )
 
 //go:generate counterfeiter . Sleeper
@@ -21,10 +23,10 @@ type RoundTripper interface {
 }
 
 type RetryRoundTripper struct {
-	Logger       lager.Logger
-	Sleeper      Sleeper
-	RetryPolicy  RetryPolicy
-	RoundTripper RoundTripper
+	Logger         lager.Logger
+	BackOffFactory BackOffFactory
+	RoundTripper   RoundTripper
+	Retryer        Retryer
 }
 
 type RetryReadCloser struct {
@@ -46,10 +48,24 @@ func (d *RetryRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 
 	var response *http.Response
 	var err error
-	retry(d.Logger, d.RetryPolicy, d.Sleeper, func() bool {
+	var failedAttempts uint
+
+	backOff := d.BackOffFactory.NewBackOff()
+
+	backoff.Retry(func() error {
 		response, err = d.RoundTripper.RoundTrip(request)
-		return err == nil || retryReadCloser.IsRead || !retryable(err)
-	})
+		if err != nil && !retryReadCloser.IsRead && d.Retryer.IsRetryable(err) {
+			failedAttempts++
+			d.Logger.Info("retrying", lager.Data{
+				"failed-attempts": failedAttempts,
+				"ran-for":         backOff.GetElapsedTime().String(),
+				"error":           err.Error(),
+			})
+			return err
+		}
+
+		return nil
+	}, backOff)
 
 	return response, err
 }

@@ -46,8 +46,6 @@ import (
 //sysnb	getgroups(n int, list *_Gid_t) (nn int, err error)
 //sysnb	setgroups(n int, list *_Gid_t) (err error)
 
-func Getpagesize() int { return 4096 }
-
 //sysnb	Gettimeofday(tv *Timeval) (err error)
 
 func Time(t *Time_t) (tt Time_t, err error) {
@@ -132,7 +130,6 @@ func (cmsg *Cmsghdr) SetLen(length int) {
 func mmap(addr uintptr, length uintptr, prot int, flags int, fd int, offset int64) (xaddr uintptr, err error) {
 	mmap_args := [6]uintptr{addr, length, uintptr(prot), uintptr(flags), uintptr(fd), uintptr(offset)}
 	r0, _, e1 := Syscall(SYS_MMAP, uintptr(unsafe.Pointer(&mmap_args[0])), 0, 0)
-	use(unsafe.Pointer(&mmap_args[0]))
 	xaddr = uintptr(r0)
 	if e1 != 0 {
 		err = errnoErr(e1)
@@ -317,4 +314,13 @@ func Shutdown(s, how int) error {
 		return err
 	}
 	return nil
+}
+
+//sys	poll(fds *PollFd, nfds int, timeout int) (n int, err error)
+
+func Poll(fds []PollFd, timeout int) (n int, err error) {
+	if len(fds) == 0 {
+		return poll(nil, 0, timeout)
+	}
+	return poll(&fds[0], len(fds), timeout)
 }
